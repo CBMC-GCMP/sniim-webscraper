@@ -1,0 +1,217 @@
+---
+title: "CBMC-Fish Price Monitoring"
+output:
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+    theme: sandstone
+runtime: shiny
+resource_files:
+- .secrets/bb8565617b5e9996ff93e6d214ba7218_favoretto@uabcs.mx
+---
+
+```{r setup, include=FALSE}
+
+library(shiny)
+library(flexdashboard)
+library(tidyverse)
+library(patchwork)
+library(plotly)
+library(see)
+
+sniim <- data.table::fread("https://www.dropbox.com/s/e9altoa7v8zxzvg/ts_summary.csv?dl=1")
+
+results <- data.table::fread("https://www.dropbox.com/s/c7xe1g05643re32/last_prices.csv?dl=1")
+
+```
+
+Price Selector
+=====================================
+
+Column {.sidebar}
+-----------------------------------------------------------------------
+
+Select a species name below to see the price stats.  
+```{r}
+
+selectInput("species3", label = "Species:",
+            choices = sniim %>% 
+                      select(product_short_name) %>% 
+                      unique() %>% 
+                      pull() %>% 
+                      sort(.), 
+            selected = "Huachinango")
+
+
+```
+
+Row
+-----------------------------------------------------------------------
+
+### `r paste0("Last average price [updated ", print(results %>% pull(date) %>% max(., na.rm = T)), "]")` {.value-box}
+
+```{r}
+
+renderValueBox({
+  ratef <- formatC( 
+    results %>%
+    filter(product_short_name == as.character(input$species3)) %>% 
+    filter(date == max(date, na.rm = T)) %>% 
+      ungroup() %>% 
+    summarise(p_mean = mean(price_mxn, na.rm = T)) %>%  
+      pull(p_mean), 
+    digits = 1, format = "f")
+  rate <- results %>%
+    filter(product_short_name == as.character(input$species3)) %>% 
+    filter(date == max(date, na.rm = T)) %>% 
+      ungroup() %>% 
+    summarise(p_mean = mean(price_mxn, na.rm = T)) %>%  
+      pull(p_mean) %>% 
+            round(.,1)
+  hist <- sniim %>%
+    filter(product_short_name == as.character(input$species3)) %>% 
+      ungroup() %>% 
+    summarise(p_mean = mean(price_mxn, na.rm = T)) %>%  
+      pull(p_mean)%>% 
+            round(.,1)
+  
+  valueBox(
+    value = ratef,
+    icon = ifelse(rate == hist, "fa-equals", ifelse(rate > hist, "fa-angle-up", "fa-angle-down")), 
+    color = ifelse(rate > hist, "danger", "info")
+  )
+})
+
+```
+
+### Historical average {.value-box}
+
+```{r}
+
+renderValueBox({
+  rate <- formatC( 
+    sniim %>%
+    filter(product_short_name == as.character(input$species3)) %>% 
+      ungroup() %>% 
+    summarise(p_mean = mean(price_mxn, na.rm = T)) %>%  
+      pull(p_mean), 
+    digits = 1, format = "f")
+  valueBox(
+    value = rate
+  )
+})
+```
+
+### `r renderText({paste0("Minimum day price reported in: ", print(results %>%  filter(product_short_name == as.character(input$species3)) %>% filter(date == max(date, na.rm = T)) %>% filter(price_mxn == min(price_mxn, na.rm=T)) %>% pull(origin_name) %>%  unique()))})` {.value-box}
+
+```{r}
+
+renderValueBox({
+  
+   rate <- formatC( 
+    results %>%
+    filter(product_short_name == as.character(input$species3)) %>% 
+    filter(date == max(date, na.rm = T)) %>% 
+    filter(price_mxn == min(price_mxn, na.rm = T)) %>% 
+    ungroup() %>%
+    pull(price_mxn) %>% 
+    unique(), 
+    digits = 1, format = "f")
+   
+  valueBox(
+    value = rate
+  )
+})
+```
+
+### `r renderText({paste0("Maximum day price reported in: ", print(results %>%  filter(product_short_name == as.character(input$species3)) %>% filter(date == max(date, na.rm = T)) %>% filter(price_mxn == max(price_mxn, na.rm = T)) %>%  pull(origin_name) %>%  unique()))})` {.value-box}
+
+```{r}
+
+renderValueBox({
+   
+   rate <- formatC( 
+    results %>%
+    filter(product_short_name == as.character(input$species3)) %>% 
+    filter(date == max(date, na.rm = T)) %>% 
+    filter(price_mxn == max(price_mxn, na.rm = T)) %>%   
+    ungroup() %>%
+    pull(price_mxn) %>% 
+    unique(), 
+    digits = 1, format = "f")
+   
+  valueBox(
+    value = rate
+  )
+})
+```
+
+
+
+
+Time trends 
+=====================================
+
+Column {.sidebar}
+-----------------------------------------------------------------------
+
+Select a species name below to see the price trends. 
+
+```{r}
+
+selectInput("species4", label = "Species:",
+            choices = sniim %>% 
+                      select(product_short_name) %>% 
+                      unique() %>% 
+                      pull() %>% 
+                      sort(.), 
+            selected = "Huachinango")
+
+
+```
+
+Row
+-----------------------------------------------------------------------
+
+
+### Historical trend
+
+```{r}
+renderPlotly({
+  
+sniim %>%
+          filter(product_short_name == as.character(input$species4)) %>% 
+          ggplot(aes(x = date, y = price_mxn)) +
+          #geom_point(col = "white") +
+          #geom_line(col = "white") +
+          geom_smooth(col = "white") +
+          labs(x="Year", y="Price in MXN pesos") +
+          theme_abyss()
+})
+
+
+```
+
+Row
+-----------------------------------------------------------------------
+
+### Seasonal trend
+
+```{r}
+renderPlotly({
+  sniim %>%
+          filter(product_short_name == as.character(input$species4)) %>% 
+          mutate(month = lubridate::month(date)) %>% 
+          group_by(month, product_short_name) %>% 
+          summarise(price_mxn = mean(price_mxn)) %>% 
+          ggplot(aes(x = month, y = price_mxn)) +
+          geom_line(col = "white") +
+          labs(x="Month", y="Price in MXN pesos") +
+          scale_x_continuous(breaks = seq(1,12, by=1)) +
+          theme_abyss()
+
+})
+
+
+```
+
